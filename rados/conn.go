@@ -358,3 +358,50 @@ func (c *Conn) monCommand(args, inputBuffer []byte) (buffer []byte, info string,
 
 	return
 }
+
+// MgrCommand sends a command to one of the mgr
+func (c *Conn) MgrCommand(args []byte) (buffer []byte, info string, err error) {
+	return c.mgrCommand(args, nil)
+}
+
+// MgrCommand sends a command to one of the mgr, with an input buffer
+func (c *Conn) MgrCommandWithInputBuffer(args, inputBuffer []byte) (buffer []byte, info string, err error) {
+	return c.mgrCommand(args, inputBuffer)
+}
+
+func (c *Conn) mgrCommand(args, inputBuffer []byte) (buffer []byte, info string, err error) {
+	argv := C.CString(string(args))
+	defer C.free(unsafe.Pointer(argv))
+
+	var (
+		outs, outbuf       *C.char
+		outslen, outbuflen C.size_t
+	)
+	inbuf := C.CString(string(inputBuffer))
+	inbufLen := len(inputBuffer)
+	defer C.free(unsafe.Pointer(inbuf))
+
+	ret := C.rados_mgr_command(c.cluster,
+		&argv, 1,
+		inbuf,              // bulk input (e.g. crush map)
+		C.size_t(inbufLen), // length inbuf
+		&outbuf,            // buffer
+		&outbuflen,         // buffer length
+		&outs,              // status string
+		&outslen)
+
+	if outslen > 0 {
+		info = C.GoStringN(outs, C.int(outslen))
+		C.free(unsafe.Pointer(outs))
+	}
+	if outbuflen > 0 {
+		buffer = C.GoBytes(unsafe.Pointer(outbuf), C.int(outbuflen))
+		C.free(unsafe.Pointer(outbuf))
+	}
+	if ret != 0 {
+		err = RadosError(int(ret))
+		return nil, info, err
+	}
+
+	return
+}
